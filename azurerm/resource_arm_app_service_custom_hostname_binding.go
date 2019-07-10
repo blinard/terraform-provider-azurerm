@@ -6,6 +6,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2018-02-01/web"
 	"github.com/hashicorp/terraform/helper/schema"
+	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/tf"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
@@ -36,6 +37,29 @@ func resourceArmAppServiceCustomHostnameBinding() *schema.Resource {
 				Required: true,
 				ForceNew: true,
 			},
+
+			"ssl": {
+				Type:     schema.TypeList,
+				Optional: true,
+				Computed: false,
+				MaxItems: 1,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"state": {
+							Type:         schema.TypeString,
+							Required:     true,
+							ForceNew:     true,
+							ValidateFunc: validation.StringInSlice([]string{"SslStateDisabled", "SslStateSniEnabled", "SslStateIpBasedEnabled"}, false),
+						},
+						"certificate_thumbprint": {
+							Type:             schema.TypeString,
+							Required:         true,
+							ForceNew:         true,
+							DiffSuppressFunc: ignoreCaseDiffSuppressFunc,
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -49,6 +73,12 @@ func resourceArmAppServiceCustomHostnameBindingCreate(d *schema.ResourceData, me
 	resourceGroup := d.Get("resource_group_name").(string)
 	appServiceName := d.Get("app_service_name").(string)
 	hostname := d.Get("hostname").(string)
+	ssls := d.Get("ssl").([]interface{})
+	var ssl (map[string]interface{})
+
+	if ssls != nil {
+		ssl = ssls[0].(map[string]interface{})
+	}
 
 	azureRMLockByName(appServiceName, appServiceCustomHostnameBindingResourceName)
 	defer azureRMUnlockByName(appServiceName, appServiceCustomHostnameBindingResourceName)
@@ -70,6 +100,11 @@ func resourceArmAppServiceCustomHostnameBindingCreate(d *schema.ResourceData, me
 		HostNameBindingProperties: &web.HostNameBindingProperties{
 			SiteName: utils.String(appServiceName),
 		},
+	}
+
+	if ssl != nil {
+		properties.HostNameBindingProperties.SslState = ssl["state"].(web.SslState)
+		properties.HostNameBindingProperties.Thumbprint = utils.String(ssl["certificate_thumbprint"].(string))
 	}
 
 	if _, err := client.CreateOrUpdateHostNameBinding(ctx, resourceGroup, appServiceName, hostname, properties); err != nil {
@@ -116,6 +151,10 @@ func resourceArmAppServiceCustomHostnameBindingRead(d *schema.ResourceData, meta
 	d.Set("app_service_name", appServiceName)
 	d.Set("resource_group_name", resourceGroup)
 
+	if err := d.Set("ssl", flattenHostnameSsl(resp.HostNameBindingProperties)); err != nil {
+		return fmt.Errorf("Error setting `ssl`: %+v", err)
+	}
+
 	return nil
 }
 
@@ -144,4 +183,23 @@ func resourceArmAppServiceCustomHostnameBindingDelete(d *schema.ResourceData, me
 	}
 
 	return nil
+}
+
+func flattenHostnameSsl(input *web.HostNameBindingProperties) []interface{} {
+	outputs := make([]interface{}, 0)
+	if input == nil {
+		return outputs
+	}
+
+	output := make(map[string]interface{}, 2)
+
+	output["state"] = string(input.SslState)
+
+	if input.Thumbprint != nil {
+		output["certificate_thumbprint"] = *input.Thumbprint
+	}
+
+	outputs = append(outputs, output)
+
+	return outputs
 }
