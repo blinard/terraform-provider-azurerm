@@ -43,6 +43,7 @@ func resourceArmAppServiceCustomHostnameBinding() *schema.Resource {
 				Optional: true,
 				Computed: false,
 				MaxItems: 1,
+				ForceNew: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"state": {
@@ -103,7 +104,7 @@ func resourceArmAppServiceCustomHostnameBindingCreate(d *schema.ResourceData, me
 	}
 
 	if ssl != nil {
-		properties.HostNameBindingProperties.SslState = ssl["state"].(web.SslState)
+		properties.HostNameBindingProperties.SslState = web.SslState(ssl["state"].(string))
 		properties.HostNameBindingProperties.Thumbprint = utils.String(ssl["certificate_thumbprint"].(string))
 	}
 
